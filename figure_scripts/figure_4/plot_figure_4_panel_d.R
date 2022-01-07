@@ -1,0 +1,423 @@
+# library(ape)
+# library(ggtree)
+# library(phytools)
+# library(tidytree)
+# library(dplyr)
+# library(stringr)
+# library(vegan)
+# library(ggplot2)
+# library(tidyr)
+# library(ggridges)
+# library(stringi)
+# 
+
+
+
+library(micro.gen.extra)
+library(UpSetR)
+
+
+#### 1 - get tree ####
+tree_cols <- c("0" = "black",
+               "1" = "#bab0ac",
+               "2" = "#59a14f",
+               "3" = "#e15759",
+               "4" = "#76b7b2",
+               "5" = "#4e79a7",
+               "6" = "#f28e2b",
+               "7" = "#9c755f",
+               "8" = "#edc948",
+               "9" = "#b07aa1",
+               "10" = "#D7B5A6",
+               "11" = "#ff9da7",
+               "12" = "#a0a0a0",
+               "13" = "#B3E2CD",
+               "14" = "black",
+               "0" = "black")
+
+serratia_tree <- ggtree::read.tree("../../figshare_data/tree/snp_sites_aln_panaroo.aln.treefile")
+rooted_serratia_tree <- phytools::midpoint.root(serratia_tree)
+t1 <- ggtree::ggtree(rooted_serratia_tree, ladderize = T, right = T)
+
+
+## fastani clusters:
+
+fastani_data <- read.csv("../../figshare_data/clusters/95_to_99_ani_clusters.csv",
+                         stringsAsFactors = F)
+
+fastani_95 <- fastani_data %>% 
+  select(Name,X95) %>% 
+  rename(strain = Name, phylogroup = X95) %>% #phylogroups set by 95% ANI
+  mutate(strain = gsub("#","_",strain))
+
+##### dplyr example to get the groups from this dataframe to put into groupOTU:
+
+dplyr_genus_groups <- fastani_data %>%
+  select(Name, X95) %>% # only take the name of the strains and the clusters when cut off at 95% ANI
+  mutate(Name = gsub("#","_",Name)) %>% # remove hashes from WSI lane id's
+  group_by(X95) %>%  
+  mutate(strains = list(Name)) %>% # get list of strains in each 95% ANI cluster
+  select(X95,strains) %>%
+  unique() %>% # remove the strain name/ lane id column and remove duplicate rows
+  pull(strains, name = X95) # take the list of the lists of strain names/lane ids and name each item of the list by the fastANI cluster
+
+
+
+genus_groups_tree <- ggtree::groupOTU(rooted_serratia_tree, dplyr_genus_groups) #, overlap='abandon',connect = T)
+#get tibble data:
+tree_tibble <- as_tibble(genus_groups_tree)
+
+
+## plot tree second time with colours:
+
+t2 <-  ggtree::ggtree(genus_groups_tree, ladderize = T, right = T, size=0.5, aes(color=group)) +
+  scale_color_manual(values = c(tree_cols)) +
+  ggtree::geom_treescale(x=0, y=0, offset = 10, width = 0.1, linesize = 0.5) +
+  theme(legend.position = "none")
+
+
+
+### add in fastbaps data: 
+fastbaps <- read.csv("../../figshare_data/clusters/fastbaps_clusters.csv",
+                     row.names = 1,
+                     stringsAsFactors = T)
+
+
+## use level three
+fastbaps_l3 <- fastbaps %>%
+  select(Level.3) %>%
+  rename(cluster = Level.3) %>%
+  tibble::rownames_to_column(var = "strain") %>%
+  mutate(cluster = as.factor(cluster))
+
+##get the groups of the fastbaps:
+
+fastbaps_groups <- fastbaps_l3 %>%
+  group_by(cluster) %>%
+  summarise(strains = list(strain)) %>%
+  pull(strains, name = cluster)
+
+#get the clade names:
+clade_labels <- micro.gen.extra::get_clade_nodes(genus_groups_tree, fastbaps_l3)
+
+
+#draw the tree:
+new_tree <- micro.gen.extra::add_clades_to_tree(t2,clade_labels)
+
+
+#### 2 - read in codon usage #### 
+
+# first get gene and gc details:
+
+#first untar:
+untar(tarfile = "../../figshare_data/gc_content/panaroo_gc_details.tar.gz",
+      exdir = "../../figshare_data/gc_content/")
+
+
+gene_and_gc_details <- read.csv("../../figshare_data/gc_content/panaroo_gc_details.csv", stringsAsFactors = F, quote = "", comment.char = "") %>%
+  mutate(strain = gsub("#","_",strain)) %>%
+  left_join(fastani_95 , by = "strain") %>%
+  left_join(fastbaps_l3 %>% rename(lineage = cluster), by = "strain") %>%
+  full_join(read.csv("../../figshare_data/pangenome/genus_core_gene_names.csv",stringsAsFactors = F) %>%
+              mutate(type = "core") %>%
+              rename(group = Gene) , by = "group") %>%
+  mutate(type = ifelse(is.na(type), "non-core",type)) # replace all NA in "type" column with "non-core"
+
+#now delete file
+file.remove("../../figshare_data/gc_content/panaroo_gc_details.csv")
+
+#read in the codon usage details and merge in the above gene details as well:
+
+#untar
+#first untar:
+untar(tarfile = "../../figshare_data/pangenome/panaroo_codon_details.tar.gz",
+      exdir = "../../figshare_data/pangenome/")
+
+
+codon_usage <- read.csv("../../figshare_data/pangenome/panaroo_codon_details.csv",
+                        comment.char = "",
+                        stringsAsFactors = F) 
+
+#delete file
+file.remove("../../figshare_data/pangenome/panaroo_gc_details.csv")
+
+
+codon_usage_with_details <- codon_usage %>%
+  left_join(gene_and_gc_details, by = "gene")
+
+###remove all columns with Ns:
+codon_usage_with_details <- codon_usage_with_details %>% 
+  select(c("gene","ATG","AAA","CCT","TTA","CTC","ATT","ACG","GGC","GTA",   
+           "TTC","GCA","GCG","CTG","GTC","AGT","TGT","ACT","CCA","AAC",
+           "CAA","GTT","GGT","AGC","CAC","AAT","CAG","CGT","GCC","GGG",     
+           "CTT","TGG","ATC","GAC","GTG","GAT","AAG","CAT","ATA","TAC",       
+           "TCG","TAT","GGA","CCG","CGC","GAA","TAA","TCC","AGG","AGA",       
+           "TTT","ACC","CGA","TTG","TGA","GCT","CCC","TCA","TCT","CGG",       
+           "GAG","CTA","ACA","TGC","TAG","group","strain","phylogroup","lineage","type")) %>%
+  filter(type == "core")
+
+
+#make a heatmap of all of the codons
+codon_usage_heatmap <- as.data.frame(matrix(nrow=length(unique(codon_usage_with_details$strain)), ncol=64))
+colnames(codon_usage_heatmap) <- c("ATG","AAA","CCT","TTA","CTC","ATT","ACG","GGC","GTA",       
+                          "TTC","GCA","GCG","CTG","GTC","AGT","TGT","ACT","CCA","AAC",       
+                          "CAA","GTT","GGT","AGC","CAC","AAT","CAG","CGT","GCC","GGG",       
+                          "CTT","TGG","ATC","GAC","GTG","GAT","AAG","CAT","ATA","TAC",       
+                          "TCG","TAT","GGA","CCG","CGC","GAA","TAA","TCC","AGG","AGA",       
+                          "TTT","ACC","CGA","TTG","TGA","GCT","CCC","TCA","TCT","CGG",       
+                          "GAG","CTA","ACA","TGC","TAG")
+rownames(codon_usage_heatmap) <- unique(codon_usage_with_details$strain)
+
+##loop
+for (i in 1:length(unique(codon_usage_with_details$strain))) {
+  print(i)
+  strain_name = unique(codon_usage_with_details$strain)[i]
+  ## take data for this strain
+  test <- subset.data.frame(codon_usage_with_details, strain == strain_name)
+  test[is.na(test)] <- 0
+  #get colsums:
+  colsums_data <- data.frame(codon = names(colSums(test[2:65])),numbers = colSums(test[2:65])) 
+  colsums_data$perc_of_all_codons <- (colsums_data$numbers / sum(colsums_data$numbers)) * 100
+  #pivot:
+  colsums_data <- subset.data.frame(colsums_data, select = c("codon","perc_of_all_codons")) %>% 
+    tidyr::pivot_wider(values_from = perc_of_all_codons, names_from = codon)
+
+  #now insert into a dataframe
+  codon_usage_heatmap[strain_name,] <- colsums_data[1,]
+}    
+
+#write out:
+write.csv(codon_usage_heatmap,
+          file = "codon_usage_gheatmap.csv",
+          quote = F)
+
+
+
+#### 3 - split into codons that are G/C and A/T, order the heatmap and plot ####
+
+codon_table = data.frame(
+  'ATA'='I', 'ATC'='I', 'ATT'='I', 'ATG'='M',
+  'ACA'='T', 'ACC'='T', 'ACG'='T', 'ACT'='T',
+  'AAC'='N', 'AAT'='N', 'AAA'='K', 'AAG'='K',
+  'AGC'='S', 'AGT'='S', 'AGA'='R', 'AGG'='R',
+  'CTA'='L', 'CTC'='L', 'CTG'='L', 'CTT'='L',
+  'CCA'='P', 'CCC'='P', 'CCG'='P', 'CCT'='P',
+  'CAC'='H', 'CAT'='H', 'CAA'='Q', 'CAG'='Q',
+  'CGA'='R', 'CGC'='R', 'CGG'='R', 'CGT'='R',
+  'GTA'='V', 'GTC'='V', 'GTG'='V', 'GTT'='V',
+  'GCA'='A', 'GCC'='A', 'GCG'='A', 'GCT'='A',
+  'GAC'='D', 'GAT'='D', 'GAA'='E', 'GAG'='E',
+  'GGA'='G', 'GGC'='G', 'GGG'='G', 'GGT'='G',
+  'TCA'='S', 'TCC'='S', 'TCG'='S', 'TCT'='S',
+  'TTC'='F', 'TTT'='F', 'TTA'='L', 'TTG'='L',
+  'TAC'='Y', 'TAT'='Y', 'TAA'='_', 'TAG'='_',
+  'TGC'='C', 'TGT'='C', 'TGA'='_', 'TGG'='W')
+
+codon_table[2,] <- colnames(codon_table)
+codon_table <- data.frame(t(codon_table))
+colnames(codon_table) <- c("AA","codon")
+
+#read in single names to full names:
+aa_names <- data.frame(single = c("A","C","D","E","F","G","H","I","K","L","M","N","P","Q","R","S","T","V","W","_","Y"),
+                       three = c("Ala","Cys","Asp","Glu","Phe","Gly","His","Ile","Lys","Leu","Met","Asn","Pro","Gln","Arg","Ser","Thr","Val","Trp","Unk","Tyr"),
+                       full_name = c( "Alanine","Cysteine","Aspartate","Glutamate","Phenylalanine","Glycine","Histidine","Isoleucine", 
+                                      "Lysine","Leucine","Methionine","Asparagine","Proline","Glutamine","Arginine","Serine",
+                                      "Threonine","Valine","Tryptophan","Unknown","Tyrosine"))
+
+
+### now order into codons that end in A/T | G/C? 
+a_and_t <- subset.data.frame(codon_usage_heatmap,
+                             select = c(append(colnames(codon_usage_heatmap)[grep("A$",colnames(codon_usage_heatmap))],colnames(codon_usage_heatmap)[grep("T$",colnames(codon_usage_heatmap))]))
+)
+
+
+g_and_c <- subset.data.frame(codon_usage_heatmap, 
+                             select = c(append(colnames(codon_usage_heatmap)[grep("G$",colnames(codon_usage_heatmap))],colnames(codon_usage_heatmap)[grep("C$",colnames(codon_usage_heatmap))]))
+)
+
+##plot:
+
+#### then sort by different amino acid??
+
+
+temp_plot <- t2
+
+offset_num = 0.5
+
+for (residue in unique(codon_table$AA)) {
+  print(residue)
+  
+  ##get name:
+  name <- subset.data.frame(aa_names, single == residue)$full_name
+  
+  temp_df <- subset.data.frame(codon_usage_heatmap,
+                               select = c(subset.data.frame(codon_table, AA == residue)$codon))
+  
+  
+  #set base offset for the gheatmaps for the annotation:
+  base_offset <- 0.5
+  
+  letter_offset <- base_offset + offset_num + (((ncol(temp_df) - 1 ) / 2 ) * 0.05)
+  
+  segment_offset_start <- base_offset + offset_num - 0.01 # adding little bit
+  segment_offset_end <- base_offset + offset_num + ((ncol(temp_df) - 1) * 0.05) + 0.01 # adding little bit
+    
+    
+  ##add segment line:
+  
+  
+  ##add to the temp_plot
+  
+  temp_plot <- temp_plot %>% ggtree::gheatmap(temp_df, color = NULL,
+                         colnames_position = "top",
+                         offset = offset_num,
+                         width = (ncol(temp_df)*0.1),
+                         colnames_angle = 90,
+                         hjust = 0) +
+    ylim(0,750) +
+    scale_fill_gradient2(low="white",mid = "red", high ="blue", limits = c(0,10)) +
+    annotate("text", x = letter_offset, y = 720, label = name, angle = 90,hjust = 0 ) +
+    annotate("segment", x = segment_offset_start, xend = segment_offset_end, y = 710, yend = 710)
+  
+
+  #reset the offset:
+  offset_num = (offset_num + (ncol(temp_df) * 0.05) + 0.05)
+                               
+}
+
+#### then think about doing the same plot-  but instead of total percentages, do less than / more than weighted averages of the total percentage of all codons in the genus:
+
+#read in fastbaps data:
+weighting_codon_usage <- codon_usage_heatmap %>%
+  mutate(strain = rownames(codon_usage_heatmap)) %>%
+  tidyr::pivot_longer(cols = ATG:TAG,
+               names_to = "codon",
+               values_to = "perc") %>%
+  left_join(., fastbaps_l3, by = "strain") %>% # get average per cluser
+  group_by(codon, cluster) %>%
+  summarise(mean_in_cluster = mean(perc), n = n()) %>% # now get the average of the different clusters
+  group_by(codon) %>%
+  summarise(mean_between_clusters = mean(mean_in_cluster))
+
+#set this as a named character variable:
+codon_means <- weighting_codon_usage$mean_between_clusters
+names(codon_means) <- weighting_codon_usage$codon
+
+#### now modify the codon_usage_heatmap by subtracting the average:
+
+shifted_codon_usage_heatmap <- data.frame(codon_usage_heatmap)
+
+
+for (i in 1:length(colnames(shifted_codon_usage_heatmap))) {
+  codon_name <- colnames(shifted_codon_usage_heatmap)[i]
+  # now reset each column:
+  shifted_codon_usage_heatmap[i] <- shifted_codon_usage_heatmap[i] - codon_means[codon_name]
+}
+
+##now plot this (again - for each amino acid):
+
+#first plot general GC content heatmap
+GC_heatmap <- read.csv("../../figshare_data/metadata/serratia_metadata.csv", header = T,
+                                            quote = "",
+                                            stringsAsFactors = F,
+                                            comment.char = "") %>%
+  select(File_prefix,GC....) %>%
+  rename(strain = File_prefix, wgGC = GC....) %>%
+  mutate(strain = gsub("#","_",strain)) %>%
+  tibble::column_to_rownames(var = "strain")
+
+library(ggnewscale)
+
+input_plot <- new_tree %>% ggtree::gheatmap(GC_heatmap, color= NULL,
+                      width = 0.2,
+                      colnames_position = "top",
+                      offset = 0.15,
+                      colnames_angle = 90,
+                      hjust = 0) +
+  scale_fill_gradient2(low = "#3a1c71", mid = "#d76d77", high = "#ffaf7b", midpoint = 57) +
+  new_scale_fill()
+
+
+
+
+temp_plot <- input_plot
+
+offset_num = 0.35
+
+for (residue in unique(codon_table$AA)) {
+  print(residue)
+  
+  ##get name:
+  name <- subset.data.frame(aa_names, single == residue)$full_name
+  
+  if (name == "Unknown") {
+    name = "Stop"
+  }
+  
+  temp_df <- subset.data.frame(shifted_codon_usage_heatmap,
+                               select = c(subset.data.frame(codon_table, AA == residue)$codon))
+  
+  
+  ### now factor the order using S.grimesii (fastbaps cluster 5) as the choice:
+  
+  factoring_df <- data.frame(temp_df, strain = rownames(temp_df)) %>%
+    left_join(.,fastbaps_l3, by = "strain") %>%
+    subset.data.frame(., cluster == 5, select = c(subset.data.frame(codon_table, AA == residue)$codon))
+                             
+  mean_shifts <- sort(colMeans(factoring_df),decreasing = T)
+
+  #now reorder temp_df
+  temp_df <- temp_df[as.character(names(mean_shifts))]
+  
+  #set base offset for the gheatmaps for the annotation:
+  base_offset <- 0.5
+  
+  letter_offset <- base_offset + offset_num + (((ncol(temp_df) - 1 ) / 2 ) * 0.05)
+  
+  
+  ##set segment line:
+  segment_offset_start <- base_offset + offset_num - 0.01 # adding little bit
+  segment_offset_end <- base_offset + offset_num + ((ncol(temp_df) - 1) * 0.05) + 0.01 # adding little bit
+  
+  ##add to the temp_plot
+  
+  temp_plot <- temp_plot %>% ggtree::gheatmap(temp_df, color = NULL,
+                                      colnames_position = "top",
+                                      offset = offset_num,
+                                      width = (ncol(temp_df)*0.1),
+                                      colnames_angle = 90,
+                                      hjust = 0) +
+    ylim(0,750) +
+    # scale_fill_gradient2(low="#4e79a7",mid = "#eeeeee", high ="#e15759", limits = c(-2,2)) +  # old colours
+    scale_fill_gradient2(low="#0069A8",mid = "#eeeeee", high ="#E02700", limits = c(-2,2)) +
+    annotate("text", x = letter_offset, y = 720, label = name, angle = 90,hjust = 0 ) +
+    annotate("segment", x = segment_offset_start, xend = segment_offset_end, y = 710, yend = 710)
+  
+  
+  #reset the offset:
+  offset_num = (offset_num + (ncol(temp_df) * 0.05) + 0.05)
+  
+}
+
+
+
+
+#save out:
+temp_plot + 
+  theme(legend.position = "none")
+ggsave("fig_4_panel_d.png",dpi = 300, units = c("cm"), width = 45, height = 25)
+
+
+#get the legend:
+library(cowplot)
+l1 <- get_legend(temp_plot)# +
+                   # scale_fill_gradient2(low="#0069A8",mid = "#eeeeee", high ="#E02700", limits = c(-2,2),
+                   #                      guide = guide_colourbar(direction = "horizontal")))
+                   #scale_fill_continuous(guide = guide_colourbar(direction = "horizontal")) 
+
+ggdraw(l1)
+ggsave("legend_plot_2.png", dpi = 600,width = 7, height = 20)
+
+
+
+

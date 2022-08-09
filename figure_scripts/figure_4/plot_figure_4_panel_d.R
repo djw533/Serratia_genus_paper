@@ -139,7 +139,7 @@ codon_usage <- read.csv("../../figshare_data/pangenome/panaroo_codon_details.csv
                         stringsAsFactors = F) 
 
 #delete file
-file.remove("../../figshare_data/pangenome/panaroo_gc_details.csv")
+file.remove("../../figshare_data/pangenome/panaroo_codon_details.csv")
 
 
 codon_usage_with_details <- codon_usage %>%
@@ -347,12 +347,20 @@ offset_num = 0.35
 for (residue in unique(codon_table$AA)) {
   print(residue)
   
-  ##get name:
-  name <- subset.data.frame(aa_names, single == residue)$full_name
+  # ##get name:
+  # name <- subset.data.frame(aa_names, single == residue)$full_name
+  # 
+  # if (name == "Unknown") {
+  #   name = "Stop"
+  # }
   
-  if (name == "Unknown") {
+  #or below to use the three letter code
+  name <- subset.data.frame(aa_names, single == residue)$three
+
+  if (name == "Unk") {
     name = "Stop"
   }
+  
   
   temp_df <- subset.data.frame(shifted_codon_usage_heatmap,
                                select = c(subset.data.frame(codon_table, AA == residue)$codon))
@@ -384,13 +392,14 @@ for (residue in unique(codon_table$AA)) {
   temp_plot <- temp_plot %>% ggtree::gheatmap(temp_df, color = NULL,
                                       colnames_position = "top",
                                       offset = offset_num,
+                                      font.size = 5,
                                       width = (ncol(temp_df)*0.1),
                                       colnames_angle = 90,
                                       hjust = 0) +
     ylim(0,750) +
     # scale_fill_gradient2(low="#4e79a7",mid = "#eeeeee", high ="#e15759", limits = c(-2,2)) +  # old colours
     scale_fill_gradient2(low="#0069A8",mid = "#eeeeee", high ="#E02700", limits = c(-2,2)) +
-    annotate("text", x = letter_offset, y = 720, label = name, angle = 90,hjust = 0 ) +
+    annotate("text", x = letter_offset, y = 720, label = name, angle = 90, hjust = 0, size = 8 ) +
     annotate("segment", x = segment_offset_start, xend = segment_offset_end, y = 710, yend = 710)
   
   
@@ -403,9 +412,15 @@ for (residue in unique(codon_table$AA)) {
 
 
 #save out:
-temp_plot + 
+p4 <- temp_plot + 
+  ylim(0,850) +
   theme(legend.position = "none")
-ggsave("fig_4_panel_d.png",dpi = 300, units = c("cm"), width = 45, height = 25)
+ggsave(x = p4,
+       file = "fig_4_panel_d_3_letter.png",dpi = 600, units = c("cm"), width = 55, height = 25)
+
+pdf("fig_4_panel_d_3_letter.pdf", width = 55/2.54, height = 25/2.54)
+p4
+dev.off()
 
 
 #get the legend:

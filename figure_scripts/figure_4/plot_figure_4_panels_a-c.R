@@ -107,9 +107,11 @@ new_tree <- micro.gen.extra::add_clades_to_tree(t2,clade_labels)
 #### 2 - read in GC content data: ####
 
 intergenic <- read.csv("../../figshare_data/gc_content/all_intergenic_gc_values.csv",
+                       header = F,
                        stringsAsFactors = F,col.names = c("strain","intergenic_gc"))
 
 coding <- read.csv("../../figshare_data/gc_content/all_coding_gc_values.csv",
+                   header = F,
                    stringsAsFactors = F,col.names = c("strain","coding_gc")) %>%
   mutate(strain = gsub("_coding","",strain))
 
@@ -120,9 +122,22 @@ gc_data_w_phylogroup <- intergenic %>%
   mutate(strain = gsub("#","_",strain)) %>% # remove hashes from lane id's
   left_join(fastani_95)
   
+
+#write out for source data
+
+write.csv(file = "figure_4b.csv",
+          x = gc_data_w_phylogroup,
+          quote = F,
+          row.names = F)
+
 #plot coding vs. non coding - panel b
 
-p2 <- ggplot(gc_data_w_phylogroup, aes(intergenic_gc, coding_gc, colour = as.factor(phylogroup))) + geom_point() +
+p2 <- ggplot(gc_data_w_phylogroup, aes(intergenic_gc, coding_gc)) + 
+  geom_smooth(method=lm, colour = "black", alpha = 0.5) +
+  ggpubr::stat_cor(method = "pearson",#p.accuracy = 0.0000000000000000000000000000001, r.accuracy = 0.01,#  +
+                   aes(label = paste(..r.label.., ..p.label.., sep = "~`,`~"))
+  ) +
+  geom_point(aes(colour = as.factor(phylogroup))) +
   scale_color_manual(values = c(tree_cols)) +
   theme_bw() +
   theme(legend.position = "none") +
@@ -140,6 +155,14 @@ serratia_metadata <- read.csv("../../figshare_data/metadata/serratia_metadata.cs
 whole_genome_gc <- subset.data.frame(serratia_metadata, select = c("File_prefix","GC...."))  %>%
   rename(gc_perc = GC...., strain = File_prefix) %>%
   merge(fastani_95)
+
+#write out for source data
+
+write.csv(file = "figure_4a.csv",
+          x = whole_genome_gc,
+          quote = F,
+          row.names = F)
+
 
 ## plot whole genome gc histogram - panel a:
 p1 <- ggplot(whole_genome_gc, aes(gc_perc, fill = as.factor(phylogroup))) +

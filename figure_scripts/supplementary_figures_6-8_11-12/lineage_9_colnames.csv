@@ -1,0 +1,43 @@
+original_names,new_names
+bhsA_6~~~bhsA_2,Protein of unknown function (DUF1471)_13
+cdiA2~~~hpmA~~~~~~hpmA_2,haemagglutination activity domain_7
+dmlR_6~~~dmlR_24~~~dmlR_2,LysR family_3
+fabF_3~~~fabF_1~~~~~~fabF_5,Belongs to the beta-ketoacyl-ACP synthases family_13
+fes_2~~~fes_1,esterase_3
+fimF~~~fimF_2~~~sfaG~~~fimF_3,Fimbrial protein_388
+gbsA~~~betB_2~~~betB_1,Aldehyde dehydrogenase family_12
+group_14713,Isochorismatase family_16
+group_14714,Catalyzes the conversion of maleate to fumarate_2
+group_15259,Luciferase-like monooxygenase_5
+group_15621,group_15621
+group_15910,group_15910
+group_1874,transcriptional regulator_179
+group_20726,group_20726
+group_22188,Membrane_28
+group_22622,group_22622
+group_22644,Flavin reductase like domain_6
+group_23500,Amino acid synthesis_2
+group_23501,Domain of unknown function (DUF1330)_7
+group_23762,acyl carrier protein_3
+group_23910,Transcriptional regulatory protein; C terminal_89
+group_24353,group_24353
+group_26560,Transcriptional regulatory protein; C terminal_107
+group_26809,GntR family_3
+group_27001,FidL-like putative membrane protein_48
+group_27337,group_27337
+group_27378,PFAM Permease for cytosine purines; uracil; thiamine; allantoin_3
+group_27444,Zinc-dependent metalloprotease_2
+group_27507,DoxX_4
+group_32794,group_32794
+group_34519,group_34519
+group_4443,Fimbrial protein_506
+inh_2~~~inh_3~~~inh_1,Protease inhibitor Inh
+papC_4~~~papC_3~~~papC~~~papC_1,Fimbrial_201
+rclC_1~~~~~~rclC_2,response to hypochlorite
+rhmT_2,Major Facilitator Superfamily_55
+shlB_1~~~shlB_2~~~~~~shlB_3,POTRA domain_10
+smfA_6~~~smfA_5~~~smfA~~~smfA_3,Fimbria A protein_43
+xerC_1~~~xerD_2,PFAM integrase family protein_12
+ybfK~~~ydjP_1,Alpha beta hydrolase_28
+ycjY,X-Pro dipeptidyl-peptidase (S15 family)_13
+yfcS_3~~~papD_3~~~yfcS_2~~~yfcS,chaperone_93

@@ -30,7 +30,7 @@ colors = c(S.ficaria = "#f28e2b",
            S.grimesii = "#9c755f",
            S.entomophila = "#4e79a7",
            S.proteamaculans_subs.quinovorans = "#bab0ac",
-           S.odorifera = "#76b7b2",
+           S.odorifera = "#D7B5A6",
            S.marcescens_like = "#B3E2CD",
            S.rubidaea_like = "#a0a0a0")
 
@@ -153,7 +153,26 @@ cols <- c("Serratia entomophila" = "#4e79a7",
 serratia_tree <- ggtree::read.tree("../../figshare_data/tree/snp_sites_aln_panaroo.aln.treefile")
 rooted_serratia_tree <- phytools::midpoint.root(serratia_tree)
 ape::write.tree(rooted_serratia_tree, file = "rooted_serratia_tree.newick")
+
 t1 <- ggtree::ggtree(rooted_serratia_tree, ladderize = T, right = T)
+
+
+#add bootstraps:
+t1$data <- t1$data %>%
+  mutate(bootstrap = as.numeric(ifelse(isTip == FALSE & label != "Root", label, NA))) %>%
+  mutate(bootstrap_class = cut(bootstrap, breaks = c(0,80,90,95,99,100),
+                               labels = c("<= 80","<= 90","<= 95","<= 99","100"))) %>%
+  mutate(num_descending_tips = as.numeric(purrr::map2(node, bootstrap, ~ ifelse(!is.na(.y), length(castor::get_subtree_at_node(rooted_serratia_tree, 
+                                                                              as.numeric(.x) - length(rooted_serratia_tree$tip.label))$subtree$tip.label), NA))))
+
+
+
+
+view <- t1$data
+
+t1 + ggtree::geom_point2(aes(subset=!isTip & ! is.na(bootstrap) & bootstrap >= 80 & num_descending_tips > 20, color = bootstrap_class), na.rm = T)
+
+t1 + ggtree::geom_point2(aes(subset=!isTip & ! is.na(bootstrap), color = bootstrap), na.rm = T)
 
 
 ## fastani clusters:
@@ -193,13 +212,20 @@ fastbaps <- read.csv("../../figshare_data/clusters/fastbaps_clusters.csv",
                      row.names = 1,
                      stringsAsFactors = T)
 
-
 ## use level three
 fastbaps_l3 <- fastbaps %>%
   select(Level.3) %>%
   rename(cluster = Level.3) %>%
   tibble::rownames_to_column(var = "strain") %>%
   mutate(cluster = as.factor(cluster))
+
+#get df of fastabap and fastani:
+phylogroups_and_lineages <- fastbaps_l3 %>%
+  left_join(fastani_data %>%
+              select(Name, X95) %>%
+              rename(strain = Name, phylogroup = X95) %>%
+              mutate(strain = gsub("#","_",strain)),
+            by = "strain")
 
 ##get the groups of the fastbaps:
 
@@ -211,9 +237,48 @@ fastbaps_groups <- fastbaps_l3 %>%
 #get the clade names:
 clade_labels <- micro.gen.extra::get_clade_nodes(genus_groups_tree, fastbaps_l3)
 
-
 #draw the tree:
 new_tree <- micro.gen.extra::add_clades_to_tree(t2,clade_labels)
+
+###add bootstraps to this
+
+new_tree$data <- new_tree$data %>%
+  #add nodes corresponding to each lineage:
+  left_join(data.frame(node = unlist(clade_labels), ancestral_to_lineage = names(clade_labels)), by = "node") %>%
+  #add lineage and fastani data to the df
+  left_join(phylogroups_and_lineages %>% rename(label = strain, lineage = cluster), by = "label") %>%
+  #sort the bootstrap values
+  mutate(bootstrap = as.numeric(ifelse(isTip == FALSE & label != "Root", label, NA))) %>%
+  mutate(bootstrap_class = cut(bootstrap, breaks = c(0,80,90,95,99,100),
+                               labels = c("<= 80","<= 90","<= 95","<= 99","100"))) %>%
+  mutate(num_descending_tips = as.numeric(purrr::map2(node, bootstrap, ~ 
+                                                        ifelse(!is.na(.y), 
+                                                               length(castor::get_subtree_at_node(rooted_serratia_tree,
+                                                                                                  as.numeric(.x) - length(rooted_serratia_tree$tip.label))$subtree$tip.label), NA))))
+#draw new_tree with bootstraps:
+library(ggnewscale)
+
+#first all bootstraps as a color gradient
+new_tree + 
+  ggnewscale::new_scale_color() +
+  ggtree::geom_point2(aes(subset=!isTip & ! is.na(bootstrap), color = bootstrap), na.rm = T, alpha = 0.75) + 
+  theme(legend.position = "right")
+
+
+#then just all bootstraps >=80 with at least 20 descending tips
+new_tree <- new_tree +   
+  ggnewscale::new_scale_color() +
+  ggtree::geom_point2(aes(subset=!isTip & ! is.na(bootstrap) & bootstrap >= 80 & num_descending_tips > 10, color = bootstrap_class), na.rm = T) +
+  scale_color_grey(start = 0.7, end = 0.3) +
+  theme(legend.position = "right")
+
+
+#then only the bootstraps
+new_tree +
+  ggnewscale::new_scale_color() +
+  ggtree::geom_point2(aes(subset=!isTip & ! is.na(ancestral_to_lineage), color = bootstrap_class)) +
+  scale_color_grey(start = 0.7, end = 0.3) +
+  theme(legend.position = "right")
 
 
 ### start adding metadata columns - selecting species, source, dataset.
@@ -245,7 +310,7 @@ new_tree %>% ggtree::gheatmap(paper_df, color = NULL,
                       width = 0.5,
                       offset = ( max(new_tree$data$x) * 0.05 )) + 
   scale_fill_manual(values = c(cols)) +
-  theme(legend.position = "none") +
+  theme(legend.position = "right") +
   ggplot2::ylim(0, max(new_tree$data$y) + 50)
   
 
@@ -288,6 +353,64 @@ for (colname in colnames(paper_df)) {
   
   
 }
+
+
+### get maximal root-tip distances:
+
+fastani_95 <- fastani_data %>%
+  select(Name,X95) %>%
+  rename(strain = Name, phylogroup = X95) %>%
+  mutate(strain = gsub("#","_",strain))
+#get root nodes for each phylogroup:
+
+ani_clade_labels <- micro.gen.extra::get_clade_nodes(genus_groups_tree, 
+                                                 fastani_95 %>%
+                                                   rename(cluster=phylogroup))
+
+ani_clade_labels_df <- data.frame(node = unlist(ani_clade_labels), phylogroup_ancestral_node = names(ani_clade_labels))
+
+
+root_tip_distances <- new_tree$data %>%
+  #add in phylogroup_nodes 
+  left_join(ani_clade_labels_df, by = "node") %>%
+  filter(isTip == TRUE | ! is.na(phylogroup_ancestral_node)) %>%
+  mutate(phylogroup = ifelse(is.na(lineage), phylogroup_ancestral_node, phylogroup)) %>%
+  #group
+  group_by(phylogroup) %>%
+  #get max to mix in x:
+  mutate(max_dist = max(x) - min(x)) %>%
+  select(phylogroup,max_dist) %>%
+  unique()
+  
+#phylogroup names, numbers and colours
+names_and_numbers <- data.frame(colour = tree_cols, numbers = names(tree_cols)) %>%
+  left_join(data.frame(colour = colors, species = names(colors))) %>%
+  left_join(root_tip_distances %>% rename(numbers = phylogroup)) %>%
+  #join in phylogenetic diversity
+  left_join( data.frame(numbers = names(dplyr_genus_groups)) %>%
+               mutate(tips = purrr::map(numbers, ~ dplyr_genus_groups[[.x]])) %>%
+               #now get the phylogenetic diversity - using caper
+               mutate(pd = unlist(purrr::map(tips, ~ caper::pd.calc(genus_groups_tree, tip.subset = .x)))))
+
+
+#read in the core and accessory numbers of genes:
+core_and_accessory_size <- read.csv("/home/djwilliams/Documents/Serratia_genus_paper/core_and_accessory_gene_count.csv") %>%
+  rename(species = Species) %>%
+  left_join(names_and_numbers)
+
+ggplot(core_and_accessory_size) + 
+  geom_smooth(aes(max_dist, Accessory), method = "lm") +
+  geom_point(aes(max_dist,Accessory, size = Num..genomes, color = numbers)) + 
+  scale_color_manual(values = c(tree_cols)) + 
+  theme_bw()
+
+ggplot(core_and_accessory_size) + 
+  geom_smooth(aes(pd, Accessory), method = "lm") +
+  geom_point(aes(pd, Accessory, size = Num..genomes, color = numbers)) + 
+  scale_color_manual(values = c(tree_cols)) + 
+  theme_bw()
+
+
 
 
 

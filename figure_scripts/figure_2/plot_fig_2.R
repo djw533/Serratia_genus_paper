@@ -193,6 +193,18 @@ ggsave("accum_plots.svg")
 
 
 
+#save this dataframe for source data
+
+write.csv(file = "figure_2c.csv",
+          x = df_phylogroups %>%
+            rename(phylogroup = cluster,
+                   num.genomes = genomes,
+                   unique.CDSs = richness),
+          quote = F,
+          row.names = F)
+
+
+
 #### 3 - plot data like phandango: ####
 
 #read in the twilight analysis:

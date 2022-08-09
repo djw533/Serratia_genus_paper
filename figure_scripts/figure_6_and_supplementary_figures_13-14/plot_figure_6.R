@@ -1,0 +1,434 @@
+
+library(micro.gen.extra)
+
+##host range colours:
+host_range_cols <- c("multi-phyla" = "#fb8072",
+                     "phylum" = "#fdb462",
+                     "class" = "#8dd3c7",
+                     "order" = "#80b1d3",
+                     "family" = "#ffffb3",
+                     "genus" = "#bebada")
+
+
+#### 1 - get tree ####
+tree_cols <- c("0" = "black",
+               "1" = "#bab0ac",
+               "2" = "#59a14f",
+               "3" = "#e15759",
+               "4" = "#76b7b2",
+               "5" = "#4e79a7",
+               "6" = "#f28e2b",
+               "7" = "#9c755f",
+               "8" = "#edc948",
+               "9" = "#b07aa1",
+               "10" = "#D7B5A6",
+               "11" = "#ff9da7",
+               "12" = "#a0a0a0",
+               "13" = "#B3E2CD",
+               "14" = "black",
+               "0" = "black")
+
+serratia_tree <- ggtree::read.tree("../../figshare_data/tree/snp_sites_aln_panaroo.aln.treefile")
+rooted_serratia_tree <- phytools::midpoint.root(serratia_tree)
+t1 <- ggtree::ggtree(rooted_serratia_tree, ladderize = T, right = T)
+
+
+## fastani clusters:
+
+fastani_data <- read.csv("../../figshare_data/clusters/95_to_99_ani_clusters.csv",
+                         stringsAsFactors = F)
+
+fastani_95 <- fastani_data %>% 
+  select(Name,X95) %>% 
+  rename(strain = Name, phylogroup = X95) %>% #phylogroups set by 95% ANI
+  mutate(strain = gsub("#","_",strain))
+
+##### dplyr example to get the groups from this dataframe to put into groupOTU:
+
+dplyr_genus_groups <- fastani_data %>%
+  select(Name, X95) %>% # only take the name of the strains and the clusters when cut off at 95% ANI
+  mutate(Name = gsub("#","_",Name)) %>% # remove hashes from WSI lane id's
+  group_by(X95) %>%  
+  mutate(strains = list(Name)) %>% # get list of strains in each 95% ANI cluster
+  select(X95,strains) %>%
+  unique() %>% # remove the strain name/ lane id column and remove duplicate rows
+  pull(strains, name = X95) # take the list of the lists of strain names/lane ids and name each item of the list by the fastANI cluster
+
+
+
+genus_groups_tree <- ggtree::groupOTU(rooted_serratia_tree, dplyr_genus_groups) #, overlap='abandon',connect = T)
+#get tibble data:
+tree_tibble <- as_tibble(genus_groups_tree)
+
+
+## plot tree second time with colours:
+
+t2 <-  ggtree::ggtree(genus_groups_tree, ladderize = T, right = T, size=0.5, aes(color=group)) +
+  scale_color_manual(values = c(tree_cols)) +
+  ggtree::geom_treescale(x=0, y=0, offset = 10, width = 0.1, linesize = 0.5) +
+  theme(legend.position = "none")
+
+
+
+### add in fastbaps data: 
+fastbaps <- read.csv("../../figshare_data/clusters/fastbaps_clusters.csv",
+                     row.names = 1,
+                     stringsAsFactors = T)
+
+
+## use level three
+fastbaps_l3 <- fastbaps %>%
+  select(Level.3) %>%
+  rename(cluster = Level.3) %>%
+  tibble::rownames_to_column(var = "strain") %>%
+  mutate(cluster = as.factor(cluster))
+
+##get the groups of the fastbaps:
+
+fastbaps_groups <- fastbaps_l3 %>%
+  group_by(cluster) %>%
+  summarise(strains = list(strain)) %>%
+  pull(strains, name = cluster)
+
+#get the clade names:
+clade_labels <- micro.gen.extra::get_clade_nodes(genus_groups_tree, fastbaps_l3)
+
+
+#draw the tree:
+new_tree <- micro.gen.extra::add_clades_to_tree(t2,clade_labels)
+
+
+
+#### 2 - read plasmids predicted data ####
+
+
+#plasmids
+plasmids <- read.table("../../figshare_data/plasmids/Serratia_predicted_plasmids.csv",
+                       sep = ",",
+                       comment.char = "",
+                       header = T,
+                       stringsAsFactors = F) %>%
+  mutate(genome = gsub("#","_",genome))
+
+##plot the number of plasmids against the tree:
+plasmids_gheatmap <- plasmids %>% 
+  select(genome,network_cluster) %>%
+  distinct() %>%
+  mutate(presence = 1) %>%
+  tidyr::pivot_wider(names_from = network_cluster, values_from = presence, values_fill = 0) %>%
+  tibble::column_to_rownames(var = "genome")
+
+#plot with tree:
+p1 <- new_tree %>% ggtree::gheatmap(plasmids_gheatmap, color = NULL,
+                              offset = 0.1,
+                              width = 3,
+                              colnames_position = "top",
+                              colnames_angle = 90,
+                              hjust = 0,
+                              font.size = 2) +
+  ylim(0, max(new_tree$data$y) + 100) +
+  scale_fill_gradient(low = "white",high = "blue",na.value = "white") +
+  theme(legend.position = "none")
+
+ggsave(plot = p1,
+       filename = "plasmids_plot.png",
+       units = c("cm"),
+       dpi = 600,
+       height = 9.9,
+       width = 21.0)
+
+ggsave(plot = p1,
+       filename = "plasmids_plot.svg",
+       units = c("cm"),
+       dpi = 600,
+       height = 9.9,
+       width = 21.0)
+
+
+
+##### 3 - read other plasmid data and create plots ####
+
+
+Serratia_plasmids <- read.csv("../../figshare_data/plasmids/plasmid_contigs_typification.tsv", 
+                              header = TRUE,
+                              sep = "\t") %>%
+  mutate(predicted_host_range_overall_rank = gsub("multi-phylla","multi-phyla",predicted_host_range_overall_rank))
+
+# Attach data frame variables
+
+#attach(Serratia_plasmids)
+
+# Reordering Serratia species proportionally
+
+Serratia_species_Reordered <- factor(Serratia_plasmids$species, c("S. marcescens", "S. entomophila", "S. liquefaciens", "S. quinovora", "S. proteamaculans", "S. ficaria", "S. grimesii", "S. fonticola", "S. plymuthica"))
+
+# Reordering hierarchically by Host Range Rank
+
+Serratia_Host_Range_Rank_Reordered <- factor(Serratia_plasmids$predicted_host_range_overall_rank, c("genus", "family", "order", "class", "phylum", "multi-phyla"))
+
+# Plotting barplot: plasmid content by Species
+
+barplot_plasmid_content_by_species <- ggplot(Serratia_plasmids, aes(x= Serratia_species_Reordered, fill = Serratia_Host_Range_Rank_Reordered 
+                                                                    #,color= Serratia_species_Reordered
+                                                                    )) +
+  geom_bar(position = "stack", width=.9, size = 1.1, color = "black") +
+  scale_y_continuous() +
+  # scale_color_manual(name = "Species", values = c("S. marcescens" = "#59a14f",
+  #                                                 "S. entomophila" = "#4e79a7",
+  #                                                 "S. liquefaciens" = "#76b7b2",
+  #                                                 "S. quinovora" = "#bab0ac",
+  #                                                 "S. proteamaculans" = "#b07aa1",
+  #                                                 "S. ficaria" = "#f28e2b",
+  #                                                 "S. grimesii" = "#9c755f",
+  #                                                 "S. fonticola" = "#e15759",
+  #                                                 "S. plymuthica" = "#edc948"), guide=FALSE) +
+  #scale_fill_brewer(name= "Predicted host range rank", palette ="Greys", direction = 1) +
+  scale_fill_manual(values = c(host_range_cols)) +
+  labs(x="Species", y="No. Plasmids") +
+  guides(color = guide_legend(order=1, label.theme = element_text(face = "italic", size = 10)),
+         fill = guide_legend(order=2, label.theme = element_text(size = 10))) +
+  theme_bw() + 
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank()) 
+
+
+
+
+
+p2 <- barplot_plasmid_content_by_species +
+  facet_wrap(factor(Serratia_plasmids$species, c("S. marcescens", "S. entomophila", "S. liquefaciens", "S. quinovora", "S. proteamaculans", "S. ficaria", "S. grimesii", "S. fonticola", "S. plymuthica")), 
+             scale = "free", nrow = 2) +
+  #theme(legend.position = "none") +
+  theme(strip.text = element_text(face = "italic"))
+
+library(gridExtra)
+
+svg("panel_b_test.svg",  height = (8/2.54)*2, width = (21.0/2.54)*2)
+grid.arrange(p2,
+             nrow = 1)
+dev.off()
+
+
+#output:
+
+
+ggsave(plot = p2,
+       filename = "panel_b.svg",
+       dpi = 600,
+       width = 21.0,
+       height = 8)
+
+
+
+
+
+#### 4 - arrange these plots ####
+
+library(gridExtra)
+
+
+png("plot_test.png", res = 600, units = c("cm"), height = 18.0, width = 21.0)
+grid.arrange(p1,p2,
+             nrow = 2,
+             heights = c(3,1))
+dev.off()
+
+
+
+
+
+
+
+
+
+svg("plot_test.svg",  height = 18.0/2.54, width = 21.0/2.54)
+grid.arrange(p1,p2,
+             nrow = 2,
+             heights = c(3,1))
+dev.off()
+
+#### 5 - supplementary plots ####
+
+# Plotting plasmids' GC content vs Size
+
+#change size to kbp:
+Serratia_plasmids <- Serratia_plasmids %>%
+  mutate(size = size / 1000)
+
+
+pointplot_plasmids_GCvsSize <-ggplot(Serratia_plasmids, aes(x= size, y=GC, color= Serratia_species_Reordered, shape= Serratia_Host_Range_Rank_Reordered)) +
+  geom_point(aes(color= Serratia_species_Reordered, fill= Serratia_species_Reordered), size= 1.5) +
+  scale_shape_manual(name = "Predicted host range rank", values = c(22, 24, 25, 23, 21, 8)) +
+  scale_x_continuous(breaks = c(1, 2.5, 5, 10, 25, 50, 100, 150, 300), trans='log10') +
+  scale_y_continuous() +
+  scale_fill_manual(name = "Species", values = c("S. marcescens" = "#59a14f",
+                                                 "S. entomophila" = "#4e79a7",
+                                                 "S. liquefaciens" = "#76b7b2",
+                                                 "S. quinovora" = "#bab0ac",
+                                                 "S. proteamaculans" = "#b07aa1",
+                                                 "S. ficaria" = "#f28e2b",
+                                                 "S. grimesii" = "#9c755f",
+                                                 "S. fonticola" = "#e15759",
+                                                 "S. plymuthica" = "#edc948")) +
+  scale_color_manual(name = "Species", values = c("S. marcescens" = "#59a14f",
+                                                  "S. entomophila" = "#4e79a7",
+                                                  "S. liquefaciens" = "#76b7b2",
+                                                  "S. quinovora" = "#bab0ac",
+                                                  "S. proteamaculans" = "#b07aa1",
+                                                  "S. ficaria" = "#f28e2b",
+                                                  "S. grimesii" = "#9c755f",
+                                                  "S. fonticola" = "#e15759",
+                                                  "S. plymuthica" = "#edc948")) +
+  labs(x="Plasmid size", y="GC %") +
+  theme(axis.text.x = element_text(size = 8, angle = 45, hjust = 1)) +
+  guides(color = guide_legend(order=1),
+         fill = guide_legend(order=1),
+         shape = guide_legend(order=2))
+
+pointplot_plasmids_GCvsSize +
+  facet_wrap(factor(Serratia_plasmids$species, c("S. marcescens", "S. entomophila", "S. liquefaciens", "S. quinovora", "S. proteamaculans", "S. ficaria", "S. grimesii", "S. fonticola", "S. plymuthica")), nrow = 3)
+
+# Plotting distribution of plasmid size and Host Range by Species
+
+violin_plasmid_sizes_by_species <- ggplot(Serratia_plasmids, aes(x= species, y=size,  fill= Serratia_species_Reordered)) +
+  geom_jitter(aes(shape= Serratia_Host_Range_Rank_Reordered, color= Serratia_species_Reordered), alpha=1.2, size= 1.2) +
+  scale_shape_manual(name = "Predicted host range rank", values = c(0, 2, 6, 5, 1, 8)) +
+  geom_violin(width=.6, alpha = .3, size=.6) +
+  geom_boxplot(width=0.1, outlier.colour = "red", outlier.alpha = 0, alpha=.5, fill = "grey80") +
+  scale_y_continuous(breaks = c(1, 3, 10, 30, 100, 300), trans='log10') +
+  #scale_y_continuous(breaks = c(1, 2.5, 5, 10, 25, 50, 100, 150, 300), trans='log10') +
+  #scale_y_log10() + 
+  scale_fill_manual(name = "Species", values = c("S. marcescens" = "#59a14f",
+                                                 "S. entomophila" = "#4e79a7",
+                                                 "S. liquefaciens" = "#76b7b2",
+                                                 "S. quinovora" = "#bab0ac",
+                                                 "S. proteamaculans" = "#b07aa1",
+                                                 "S. ficaria" = "#f28e2b",
+                                                 "S. grimesii" = "#9c755f",
+                                                 "S. fonticola" = "#e15759",
+                                                 "S. plymuthica" = "#edc948")) +
+  scale_color_manual(name = "Species", values = c("S. marcescens" = "#59a14f",
+                                                  "S. entomophila" = "#4e79a7",
+                                                  "S. liquefaciens" = "#76b7b2",
+                                                  "S. quinovora" = "#bab0ac",
+                                                  "S. proteamaculans" = "#b07aa1",
+                                                  "S. ficaria" = "#f28e2b",
+                                                  "S. grimesii" = "#9c755f",
+                                                  "S. fonticola" = "#e15759",
+                                                  "S. plymuthica" = "#edc948"),
+                     guide = guide_legend(label.theme = element_text(face = "italic",size = 10))) +
+  labs(x="", y="Plasmid size (kb)") +
+  theme_bw() + 
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size = 14))
+
+sizes_plot <- violin_plasmid_sizes_by_species +
+  facet_wrap(factor(Serratia_plasmids$species, c("S. marcescens", "S. entomophila", "S. liquefaciens", "S. quinovora", "S. proteamaculans", "S. ficaria", "S. grimesii", "S. fonticola", "S. plymuthica")), scale = "free_x", nrow = 2) +
+  guides(fill = guide_legend(label.theme = element_text(face = "italic",size = 10))) +
+  theme(strip.text = element_text(face = "italic"))
+  
+
+  
+
+ggsave(plot = sizes_plot,
+       file = "sup_fig_13_sizes.png",
+       dpi = 600,
+       width = 5.76*1.5,
+       height = 3.78*1.5)
+
+ggsave(plot = sizes_plot,
+       file = "sup_fig_13_sizes.svg",
+       dpi = 600,
+       width = 5.76*1.5,
+       height = 3.78*1.5)
+
+
+
+
+
+
+# Plotting distribution of plasmids' GC content and Host Range by Species
+
+violin_plasmid_GC_by_species <- ggplot(Serratia_plasmids, aes(x= species, y=GC,  fill= Serratia_species_Reordered)) +
+  geom_jitter(aes(shape= Serratia_Host_Range_Rank_Reordered, color= Serratia_species_Reordered), alpha=1.2, size= 1.2) +
+  scale_shape_manual(name = "Predicted host range rank", values = c(0, 2, 6, 5, 1, 8)) +
+  geom_violin(width=.6, alpha = .3, size=.6) +
+  geom_boxplot(width=0.1, outlier.colour = "red", outlier.alpha = 0, alpha=.5, fill = "grey80") +
+  #scale_y_continuous(breaks = c(1, 3, 10, 30, 100, 300), trans='log10') +
+  scale_fill_manual(name = "Species", values = c("S. marcescens" = "#59a14f",
+                                                 "S. entomophila" = "#4e79a7",
+                                                 "S. liquefaciens" = "#76b7b2",
+                                                 "S. quinovora" = "#bab0ac",
+                                                 "S. proteamaculans" = "#b07aa1",
+                                                 "S. ficaria" = "#f28e2b",
+                                                 "S. grimesii" = "#9c755f",
+                                                 "S. fonticola" = "#e15759",
+                                                 "S. plymuthica" = "#edc948")) +
+  scale_color_manual(name = "Species", values = c("S. marcescens" = "#59a14f",
+                                                  "S. entomophila" = "#4e79a7",
+                                                  "S. liquefaciens" = "#76b7b2",
+                                                  "S. quinovora" = "#bab0ac",
+                                                  "S. proteamaculans" = "#b07aa1",
+                                                  "S. ficaria" = "#f28e2b",
+                                                  "S. grimesii" = "#9c755f",
+                                                  "S. fonticola" = "#e15759",
+                                                  "S. plymuthica" = "#edc948")) +
+  labs(x="", y="GC %") +
+  theme_bw() + 
+  theme(axis.text.x = element_blank(), axis.ticks.x = element_blank(),
+        axis.title.y = element_text(size = 14))
+  
+
+gc_plot <- violin_plasmid_GC_by_species +
+  facet_wrap(factor(Serratia_plasmids$species, c("S. marcescens", "S. entomophila", "S. liquefaciens", "S. quinovora", "S. proteamaculans", "S. ficaria", "S. grimesii", "S. fonticola", "S. plymuthica")), scale = "free_x", nrow = 2) +
+  guides(fill = guide_legend(label.theme = element_text(face = "italic",size = 10))) +
+  theme(strip.text = element_text(face = "italic"))
+
+ggsave(plot = gc_plot,
+       file = "sup_fig_14_gc.png",
+       dpi = 600,
+       width = 5.76*1.5,
+       height = 3.78*1.5)
+
+ggsave(plot = gc_plot,
+       file = "sup_fig_14_gc.svg",
+       dpi = 600,
+       width = 5.76*1.5,
+       height = 3.78*1.5)
+
+
+
+## write appropriate data out:
+
+
+write.csv(file = "figure_6b.csv",
+          x = Serratia_plasmids %>%
+            select(genome,phylogroup,species,predicted_plasmid,predicted_host_range_overall_rank),
+          quote = F,
+          row.names = F)
+
+write.csv(file = "sup_figure_13.csv",
+          x = Serratia_plasmids %>%
+            select(genome,phylogroup,species,predicted_plasmid,size),
+          quote = F,
+          row.names = F)
+
+write.csv(file = "sup_figure_14.csv",
+          x = Serratia_plasmids %>%
+            select(genome,phylogroup,species,predicted_plasmid,GC),
+          quote = F,
+          row.names = F)
+
+
+#get the n numbers for supplementary plots 13 and 14:
+
+n_numbers <- Serratia_plasmids %>%
+  select(genome,phylogroup,species,predicted_plasmid,GC) %>%
+  group_by(species) %>%
+  summarise(n=n())
+
+write.csv(file = "n_numbers.csv",
+          x = n_numbers,
+          quote = F,
+          row.names = F)
+
+

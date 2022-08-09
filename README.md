@@ -6,4 +6,12 @@ Raw and processed data used by these should be downloaded from https://figshare.
 
 ### R Dependencies
 
-* micro.gen.extra (https://github.com/djw533/micro.gen.extra) and dependencies within 
+* micro.gen.extra (https://github.com/djw533/micro.gen.extra) and dependencies within
+
+
+### Python Dependencies
+
+* networkx
+* matplotlib
+* Biopython
+* tqdm
